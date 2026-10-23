@@ -33,12 +33,16 @@ public class DoorBlockMixin extends Block implements SimpleWaterloggedBlock
 	public DoorBlockMixin(Properties properties) {
 		super(properties); // Doesn't do anything here.
 	}
-		
+
 	private static final BooleanProperty WATERLOGGED = BlockStateProperties.WATERLOGGED;
 
 	@Inject(at = @At("TAIL"), method = "<init>(Lnet/minecraft/world/level/block/state/properties/BlockSetType;Lnet/minecraft/world/level/block/state/BlockBehaviour$Properties;)V")
 	private void enhanceConstructor(BlockSetType blockset, BlockBehaviour.Properties properties, CallbackInfo callback) {
-		((DoorBlock)(Object)this).registerDefaultState(((DoorBlock)(Object)this).defaultBlockState().setValue(WATERLOGGED, false));
+		DoorBlock door = (DoorBlock)(Object)this;
+		BlockState defaultState = door.defaultBlockState();
+		if (defaultState.hasProperty(WATERLOGGED)) {
+			door.registerDefaultState(defaultState.setValue(WATERLOGGED, false));
+		}
 	}
 
 	@Inject(at = @At("TAIL"), method = "createBlockStateDefinition(Lnet/minecraft/world/level/block/state/StateDefinition$Builder;)V")
@@ -48,12 +52,17 @@ public class DoorBlockMixin extends Block implements SimpleWaterloggedBlock
 
 	@Inject(at = @At("HEAD"), method = "getStateForPlacement(Lnet/minecraft/world/item/context/BlockPlaceContext;)Lnet/minecraft/world/level/block/state/BlockState;", cancellable = true)
 	private void getStateForPlacement(BlockPlaceContext context, CallbackInfoReturnable<BlockState> callback) {
+		DoorBlock door = (DoorBlock)(Object)this;
+		if (!door.defaultBlockState().hasProperty(WATERLOGGED)) {
+			return;
+		}
+
 		BlockPos blockpos = context.getClickedPos();
 		Level level = context.getLevel();
 		if (blockpos.getY() < level.getMaxBuildHeight() - 1 && level.getBlockState(blockpos.above()).canBeReplaced(context)) {
 			boolean flag = level.hasNeighborSignal(blockpos) || level.hasNeighborSignal(blockpos.above());
 			boolean waterfilled = level.getFluidState(blockpos).getType() == Fluids.WATER;
-			callback.setReturnValue(((DoorBlock)(Object)this).defaultBlockState().setValue(DoorBlock.FACING, context.getHorizontalDirection()).setValue(DoorBlock.HINGE, ((DoorBlock)(Object)this).getHinge(context)).setValue(DoorBlock.POWERED, Boolean.valueOf(flag)).setValue(DoorBlock.OPEN, Boolean.valueOf(flag)).setValue(DoorBlock.HALF, DoubleBlockHalf.LOWER).setValue(WATERLOGGED, waterfilled));
+			callback.setReturnValue(door.defaultBlockState().setValue(DoorBlock.FACING, context.getHorizontalDirection()).setValue(DoorBlock.HINGE, door.getHinge(context)).setValue(DoorBlock.POWERED, Boolean.valueOf(flag)).setValue(DoorBlock.OPEN, Boolean.valueOf(flag)).setValue(DoorBlock.HALF, DoubleBlockHalf.LOWER).setValue(WATERLOGGED, waterfilled));
 		} else {
 			callback.setReturnValue(null);
 		}
@@ -70,20 +79,28 @@ public class DoorBlockMixin extends Block implements SimpleWaterloggedBlock
 			if (direction.getAxis() != Direction.Axis.Y || doubleblockhalf == DoubleBlockHalf.LOWER != (direction == Direction.UP)) {
 				callback.setReturnValue(doubleblockhalf == DoubleBlockHalf.LOWER && direction == Direction.DOWN && !stateIn.canSurvive(accessor, currentPos) ? Blocks.AIR.defaultBlockState() : super.updateShape(stateIn, direction, facingState, accessor, currentPos, facingPos));
 			} else {
-				callback.setReturnValue(facingState.getBlock() instanceof DoorBlock && facingState.getValue(DoorBlock.HALF) != doubleblockhalf ? facingState.setValue(DoorBlock.HALF, doubleblockhalf).setValue(WATERLOGGED, accessor.getFluidState(currentPos).getType() == Fluids.WATER) : Blocks.AIR.defaultBlockState());
+				callback.setReturnValue(facingState.getBlock() instanceof DoorBlock && facingState.getValue(DoorBlock.HALF) != doubleblockhalf ? withWaterlogged(facingState.setValue(DoorBlock.HALF, doubleblockhalf), accessor.getFluidState(currentPos).getType() == Fluids.WATER) : Blocks.AIR.defaultBlockState());
 			}
 		}
 	}
 
 	@Inject(at = @At("HEAD"), method = "setPlacedBy(Lnet/minecraft/world/level/Level;Lnet/minecraft/core/BlockPos;Lnet/minecraft/world/level/block/state/BlockState;Lnet/minecraft/world/entity/LivingEntity;Lnet/minecraft/world/item/ItemStack;)V", cancellable = true)
 	private void injectPlacedBy(Level level, BlockPos pos, BlockState state, LivingEntity entity, ItemStack stack, CallbackInfo callback) {
+		if (!state.hasProperty(WATERLOGGED)) {
+			return;
+		}
+
 		boolean waterfilled = level.getFluidState(pos.above()).getType() == Fluids.WATER;
 		level.setBlock(pos.above(), state.setValue(DoorBlock.HALF, DoubleBlockHalf.UPPER).setValue(WATERLOGGED, waterfilled), 3);
 		callback.cancel();
 	}
 
 	public FluidState getFluidState(BlockState state) {
-		return state.getValue(WATERLOGGED) ? Fluids.WATER.getSource(false) : Fluids.EMPTY.defaultFluidState();
+		return state.hasProperty(WATERLOGGED) && state.getValue(WATERLOGGED) ? Fluids.WATER.getSource(false) : super.getFluidState(state);
 	}
-	
+
+	private static BlockState withWaterlogged(BlockState state, boolean waterlogged) {
+		return state.hasProperty(WATERLOGGED) ? state.setValue(WATERLOGGED, waterlogged) : state;
+	}
+
 }
